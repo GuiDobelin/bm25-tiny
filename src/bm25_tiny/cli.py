@@ -117,19 +117,23 @@ def _cmd_index(args: argparse.Namespace) -> int:
     return 0
 
 
-def snippet(text: str, query: str, width: int = 80) -> str:
-    """One line of `text` around the first query term, whitespace collapsed.
+def snippet(text: str, query: str, width: int = 80, index: BM25 | None = None) -> str:
+    """One line of `text` around a query term, whitespace collapsed.
 
     Words are compared with the index tokenizer, so "acao" finds "ação" and "cat" does not
-    match inside "concatenate".
+    match inside "concatenate". With `index`, the window is centred on the rarest query term
+    (highest IDF) rather than the first one, so common words like "with" do not win.
     """
     flat = " ".join(text.split())
-    terms = set(tokenize(query))
-    start = 0
+    terms = tokenize(query)
+    if index is not None:
+        terms.sort(key=index.idf, reverse=True)
+    positions: dict[str, int] = {}
     for word in re.finditer(r"\S+", flat):
-        if terms.intersection(tokenize(word.group())):
-            start = max(0, word.start() - width // 4)
-            break
+        for token in tokenize(word.group()):
+            positions.setdefault(token, word.start())
+    start = next((positions[t] for t in terms if t in positions), 0)
+    start = max(0, start - width // 4)
     piece = flat[start : start + width]
     prefix = "…" if start > 0 else ""
     suffix = "…" if start + width < len(flat) else ""
@@ -145,7 +149,7 @@ def _cmd_search(args: argparse.Namespace) -> int:
             print(json.dumps(row, ensure_ascii=False))
         else:
             print(f"{rank:>2}. {r.score:7.3f}  {r.id}")
-            print(f"    {snippet(r.text, args.query)}")
+            print(f"    {snippet(r.text, args.query, index=index)}")
     if not results and not args.json:
         print("no matches", file=sys.stderr)
     return 0

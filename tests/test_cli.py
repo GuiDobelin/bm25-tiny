@@ -188,3 +188,11 @@ def test_snippet_matches_accent_folded_words():
 def test_snippet_matches_whole_words_only():
     text = "concatenate " * 20 + "the cat sat"
     assert "the cat" in snippet(text, "cat", width=30)
+
+
+def test_snippet_prefers_rarest_term():
+    index = BM25()
+    index.add_many({"a": "with zebra", "b": "with", "c": "with"})
+    text = "with " + "filler " * 40 + "zebra stripes"
+    assert "zebra" in snippet(text, "with zebra", width=30, index=index)
+    assert "zebra" not in snippet(text, "with zebra", width=30)
