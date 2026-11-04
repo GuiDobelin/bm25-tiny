@@ -1,0 +1,42 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bm25-tiny"
+version = "0.1.0"
+description = "Okapi BM25 search in pure Python with zero dependencies: index, query, persist"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+authors = [{ name = "GuiDobelin" }]
+keywords = []
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+bm25-tiny = "bm25_tiny.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/GuiDobelin/bm25-tiny"
+Issues = "https://github.com/GuiDobelin/bm25-tiny/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bm25_tiny"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
