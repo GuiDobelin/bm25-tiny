@@ -125,6 +125,10 @@ def test_k1_zero_ignores_term_frequency():
     assert s["a"] == pytest.approx(s["b"])
 
 
+def test_iterates_over_ids(index):
+    assert list(index) == ["fox", "dog", "cat"]
+
+
 def test_get(index):
     assert index.get("cat") == DOCS["cat"]
     assert index.get("nope") is None

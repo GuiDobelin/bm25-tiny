@@ -7,7 +7,7 @@ import math
 import os
 import tempfile
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -78,6 +78,10 @@ class BM25:
 
     def __contains__(self, doc_id: object) -> bool:
         return doc_id in self._texts
+
+    def __iter__(self) -> Iterator[str]:
+        """Iterate over document ids in insertion order."""
+        return iter(list(self._texts))
 
     def add(self, doc_id: str, text: str, metadata: Mapping[str, Any] | None = None) -> None:
         """Index one document. A document with the same id is replaced."""
