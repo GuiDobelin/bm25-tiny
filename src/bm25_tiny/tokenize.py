@@ -30,6 +30,7 @@ def tokenize(text: str) -> list[str]:
     """
     tokens: list[str] = []
     current: list[str] = []
+    cjk = False
 
     def flush() -> None:
         if current:
@@ -42,10 +43,15 @@ def tokenize(text: str) -> list[str]:
                 current.append(ch)
             continue
         if _is_cjk(ch):
+            # Start a one-character token so voicing marks (か + ゙ = が) stay attached.
             flush()
-            tokens.append(ch)
-        elif ch.isalnum() or ch == "_":
             current.append(ch)
+            cjk = True
+        elif ch.isalnum() or ch == "_":
+            if cjk:
+                flush()
+            current.append(ch)
+            cjk = False
         else:
             flush()
     flush()
@@ -57,6 +63,8 @@ def make_tokenizer(stopwords: Iterable[str] = ()) -> Tokenizer:
 
     Stopwords are normalized with the same rules, so "não" also removes "nao".
     """
+    if isinstance(stopwords, str):
+        raise TypeError("stopwords must be an iterable of words, not a single string.")
     stop = {token for word in stopwords for token in tokenize(word)}
     if not stop:
         return tokenize

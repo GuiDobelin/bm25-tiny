@@ -185,3 +185,56 @@ def test_load_rejects_unknown_format(tmp_path):
     path.write_text(json.dumps({"format": 99}))
     with pytest.raises(ValueError, match="format"):
         BM25.load(path)
+
+
+def test_failed_add_keeps_existing_document(index):
+    with pytest.raises(TypeError):
+        index.add("dog", None)  # type: ignore[arg-type]
+    assert index.get("dog") == DOCS["dog"]
+    assert [r.id for r in index.search("sleeps")] == ["dog"]
+
+
+def test_result_metadata_is_a_copy(index):
+    index.add("m", "zebra", {"tags": ["a"]})
+    index.search("zebra")[0].metadata["tags"].append("b")
+    assert index.search("zebra")[0].metadata == {"tags": ["a"]}
+
+
+def test_idf_normalizes_the_word(index):
+    assert index.idf("Cats") == index.idf("cats") > 0
+    assert index.idf("lazy dog") == 0
+
+
+def test_stopwords_reject_single_string():
+    with pytest.raises(TypeError):
+        BM25(stopwords="the")
+
+
+def test_saved_file_follows_umask(tmp_path, index, monkeypatch):
+    monkeypatch.setattr("bm25_tiny.index._UMASK", 0o022)
+    index.save(tmp_path / "i.json")
+    assert (tmp_path / "i.json").stat().st_mode & 0o777 == 0o644
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [],
+        {"format": 1},
+        {"format": 1, "params": {"k1": 1.5}, "documents": []},
+        {"format": 1, "params": {"k1": 1.5, "b": 0.75, "delta": 0}, "documents": [{"id": "a"}]},
+    ],
+)
+def test_load_rejects_malformed_files(tmp_path, payload):
+    path = tmp_path / "i.json"
+    path.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="bm25-tiny index"):
+        BM25.load(path)
+
+
+def test_search_matches_full_sort_for_any_k():
+    idx = BM25()
+    idx.add_many({f"d{i}": "common " * (i % 5 + 1) + f"w{i}" for i in range(50)})
+    full = idx.search("common", k=100)
+    for k in (1, 7, 50):
+        assert idx.search("common", k=k) == full[:k]
