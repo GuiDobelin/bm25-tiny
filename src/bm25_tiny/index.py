@@ -1,5 +1,7 @@
 """Okapi BM25 inverted index with incremental updates and JSON persistence."""
 
+import copy
+import heapq
 import json
 import math
 import os
@@ -13,6 +15,17 @@ from typing import Any
 from bm25_tiny.tokenize import Tokenizer, make_tokenizer
 
 FORMAT_VERSION = 1
+
+
+def _read_umask() -> int:
+    # os.umask can only be read by setting it, and it is process-wide, so do it once at
+    # import time rather than on every save (which would race with other threads).
+    mask = os.umask(0o022)
+    os.umask(mask)
+    return mask
+
+
+_UMASK = _read_umask()
 
 
 @dataclass(frozen=True)
@@ -46,6 +59,8 @@ class BM25:
             raise ValueError("b must be between 0 and 1.")
         if not (math.isfinite(delta) and delta >= 0):
             raise ValueError("delta must be a finite number >= 0.")
+        if isinstance(stopwords, str):
+            raise TypeError("stopwords must be an iterable of words, not a single string.")
         self.k1 = float(k1)
         self.b = float(b)
         self.delta = float(delta)
@@ -68,8 +83,11 @@ class BM25:
         """Index one document. A document with the same id is replaced."""
         if not isinstance(doc_id, str):
             raise TypeError("doc_id must be a string.")
-        self.remove(doc_id)
+        if not isinstance(text, str):
+            raise TypeError("text must be a string.")
+        # Tokenize before removing, so a failure never loses the existing document.
         counts = Counter(self._tokenize(text))
+        self.remove(doc_id)
         self._texts[doc_id] = text
         self._metadata[doc_id] = dict(metadata or {})
         self._counts[doc_id] = counts
@@ -103,8 +121,15 @@ class BM25:
         """Return the stored text of a document, or None."""
         return self._texts.get(doc_id)
 
-    def idf(self, term: str) -> float:
-        """Inverse document frequency of an already-tokenized term (0 if unseen)."""
+    def idf(self, word: str) -> float:
+        """Inverse document frequency of a single word, normalized like the documents.
+
+        Returns 0 for unseen words, stopwords and input that is not exactly one token.
+        """
+        tokens = self._tokenize(word)
+        return self._idf(tokens[0]) if len(tokens) == 1 else 0.0
+
+    def _idf(self, term: str) -> float:
         df = len(self._postings.get(term, ()))
         if not df:
             return 0.0
@@ -124,7 +149,7 @@ class BM25:
             postings = self._postings.get(term)
             if not postings:
                 continue
-            idf = self.idf(term)
+            idf = self._idf(term)
             for doc_id, tf in postings.items():
                 norm = 1 - self.b + self.b * self._lengths[doc_id] / avg_length
                 tf_part = tf * (self.k1 + 1) / (tf + self.k1 * norm) + self.delta
@@ -136,10 +161,13 @@ class BM25:
         if k <= 0:
             return []
         # Ties break on id so the ranking is deterministic.
-        best = sorted(self.scores(query).items(), key=lambda item: (-item[1], item[0]))[:k]
+        best = heapq.nsmallest(k, self.scores(query).items(), key=lambda item: (-item[1], item[0]))
         return [
             Result(
-                id=doc_id, score=score, text=self._texts[doc_id], metadata=self._metadata[doc_id]
+                id=doc_id,
+                score=score,
+                text=self._texts[doc_id],
+                metadata=copy.deepcopy(self._metadata[doc_id]),
             )
             for doc_id, score in best
         ]
@@ -159,11 +187,21 @@ class BM25:
     @classmethod
     def from_dict(cls, data: Mapping[str, Any]) -> "BM25":
         """Rebuild an index produced by `to_dict`."""
-        if data.get("format") != FORMAT_VERSION:
-            raise ValueError(f"Unsupported index format: {data.get('format')!r}.")
-        index = cls(**data["params"], stopwords=data.get("stopwords", ()))
-        for doc in data["documents"]:
-            index.add(doc["id"], doc["text"], doc.get("metadata"))
+        if not isinstance(data, Mapping) or data.get("format") != FORMAT_VERSION:
+            found = data.get("format") if isinstance(data, Mapping) else type(data).__name__
+            raise ValueError(f"Not a bm25-tiny index (format {found!r}).")
+        try:
+            params = data["params"]
+            index = cls(
+                k1=params["k1"],
+                b=params["b"],
+                delta=params["delta"],
+                stopwords=data.get("stopwords", ()),
+            )
+            for doc in data["documents"]:
+                index.add(doc["id"], doc["text"], doc.get("metadata"))
+        except (KeyError, TypeError) as exc:
+            raise ValueError(f"Malformed bm25-tiny index: {exc!r}.") from exc
         return index
 
     def save(self, path: str | os.PathLike[str]) -> None:
@@ -171,6 +209,8 @@ class BM25:
         target = Path(path)
         fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.")
         try:
+            # mkstemp creates the file as 0600; use the usual umask-based mode instead.
+            os.chmod(tmp, 0o666 & ~_UMASK)
             with os.fdopen(fd, "w", encoding="utf-8") as fh:
                 json.dump(self.to_dict(), fh, ensure_ascii=False)
             os.replace(tmp, target)

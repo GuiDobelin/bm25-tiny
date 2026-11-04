@@ -1,3 +1,5 @@
+import pytest
+
 from bm25_tiny import make_tokenizer, tokenize
 
 
@@ -29,3 +31,13 @@ def test_stopwords_are_normalized_like_text():
 
 def test_no_stopwords_returns_plain_tokenizer():
     assert make_tokenizer() is tokenize
+
+
+def test_keeps_kana_voicing_marks():
+    assert tokenize("がか") == ["が", "か"]
+    assert tokenize("ガイドabc") == ["ガ", "イ", "ド", "abc"]
+
+
+def test_stopwords_reject_single_string():
+    with pytest.raises(TypeError):
+        make_tokenizer("the")
