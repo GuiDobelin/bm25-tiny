@@ -1,0 +1,2 @@
+Stopwords are very common words such as "the", "and" or "of". BM25 already gives them a low
+weight through inverse document frequency, so removing them mostly saves index space.
